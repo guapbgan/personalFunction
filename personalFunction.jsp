@@ -37,20 +37,17 @@
     }
     ////Other
     public class RequestHolder{
-        //  2019/11/29 version
+        //  version 2020/01/22
         //
         //  Transfer request to map according to type of request. 
-        //  If request is multipart/form-data, the upload file would be assign to fileIten(if existed).
+        //  If request is multipart/form-data, the upload file would be assign to fileItem(if existed).
         //  *Only support one file upload
         //
         //  field: requestMap, fileItem
-        //  method: saveFile
+        //  method: saveFile, getRequestMap
         private Map<String, String> requestMap;
         private FileItem fileItem;
 
-        public Map<String, String> getRequestMap(){
-            return this.requestMap;
-        }
         public RequestHolder(HttpServletRequest request) throws Exception{
             boolean isMultipart = ServletFileUpload.isMultipartContent(request);
             this.requestMap = new HashMap();
@@ -90,60 +87,69 @@
                 }
             }            
         }
+        public Map<String, String> getRequestMap(){
+            return this.requestMap;
+        }
         private String saveFile(boolean essential, String savePath, String fileName, long sizeLimit, String[] availableFileType) throws Exception{
             //  this will return file name which be saved successful
             //
             //  essential: file is necessary or not
             //  savePath: target folder
-            //  sizeLimit: unit of sizeLimit is byte
             //  fileName: keep fileName = "" to use original file name, or use fileName which is input
-            //  availableFileType: avaliable file type
+            //  sizeLimit: unit of sizeLimit is byte
+            //  availableFileType: avaliable file type. ex. new String[]{"jpg", "gif", "jpeg", "png"}
             if(essential && this.fileItem == null){
-                throw new UploadWarningException("no file");
+                throw new UploadWarningException("No file");
             }else if(this.fileItem != null){
-                if(this.fileItem.getSize() < sizeLimit){
-                    String mainFileName, fileType;
-                    String originalFileName = this.fileItem.getName();
-                    
-                    //get file name and file type
-                    if(fileName.equals("")){
-                        mainFileName = originalFileName.substring(0,originalFileName.lastIndexOf("."));
-                    }else{
-                        mainFileName = fileName;
-                    }
+                //check file size
+                if(this.fileItem.getSize() > sizeLimit){
+                    throw new UploadWarningException("File size can not be large than " + sizeLimit + " bytes");
+                }                       
+
+                String mainFileName, fileType;
+                String originalFileName = this.fileItem.getName();
+                
+                //get file name and file type
+                if(originalFileName.contains(".")){
                     fileType = originalFileName.substring(originalFileName.lastIndexOf(".")+1).toLowerCase();
-                    
-                    //check file type
-                    Map availableMap = new HashMap();
-                    for(String type: availableFileType){
-                        availableMap.put(type,type);
-                    }
-                    if(availableMap.get(fileType) == null){
-                        new UploadWarningException(fileType + " is not available");
+                }else{
+                    throw new UploadWarningException("There is no filename extension");
+                }
+                                
+                if(fileName.equals("")){
+                    mainFileName = originalFileName.substring(0,originalFileName.lastIndexOf("."));
+                }else{
+                    mainFileName = fileName;
+                }
+                
+                //check file type
+                Map availableMap = new HashMap();
+                for(String type: availableFileType){
+                    availableMap.put(type,type);
+                }
+                if(availableMap.get(fileType) == null && availableMap.size() != 0){
+                    throw new UploadWarningException(fileType + " is not available");
+                }
+
+                //start upload
+                try {
+                    //prevent duplicated file name replace existed file
+                    int count = 0;
+                    String newMainFileName = mainFileName;
+                    while(true){
+                        if(new File(savePath, newMainFileName + "." + fileType).exists()){
+                            count++;
+                            newMainFileName = String.format("%s (%d)", mainFileName, count);
+                        }else{
+                            break;
+                        }
                     }
 
-                    //start upload
-                    try {
-                        //prevent duplicated file name replace existed file
-                        int count = 0;
-                        String newMainFileName = mainFileName;
-                        while(true){
-                            if(new File(savePath, newMainFileName + "." + fileType).exists()){
-                                count++;
-                                newMainFileName = String.format("%s (%d)", mainFileName, count);
-                            }else{
-                                break;
-                            }
-                        }
-   
-                        //upload file
-                        this.fileItem.write(new File(savePath, newMainFileName + "." + fileType));
-                        return newMainFileName + "." + fileType;
-                    } catch (Exception e) {
-                        throw e;
-                    }                
-                }else{
-                    throw new UploadWarningException("file size could not be large than " + sizeLimit + " bytes");
+                    //upload file
+                    this.fileItem.write(new File(savePath, newMainFileName + "." + fileType));
+                    return newMainFileName + "." + fileType;
+                } catch (Exception e) {
+                    throw e;
                 }                
             }else{
                 return "";
@@ -296,17 +302,24 @@
         return content;
     }    
     public Map<String, String> replaceNullWithEmptyString(Map oldMap){
+        // 2020/01/03 update
         Map<String, String> newMap = new HashMap();
         for(Object object: oldMap.entrySet()){
             Map.Entry<String, String> entry = (Map.Entry)object;
             if(entry.getValue() == null){
                 newMap.put(entry.getKey(), "");
             }else{
-                newMap.put(entry.getKey(), ((Object)entry.getValue()).toString());
+                newMap.put(entry.getKey(), ((Object)entry.getValue()).toString().trim());
             }
         }
         return newMap;
-    }    
+    }
+    public String[] getAllColumnNamesOfTable(JdbcTemplate jt, String tableName){
+        //2020/01/22 create
+        SqlRowSet resultSet = jt.queryForRowSet("select * from " + tableName);
+        SqlRowSetMetaData sqlRowSetMetaData = resultSet.getMetaData();
+        return sqlRowSetMetaData.getColumnNames();
+    }
     //other    
     public List<Integer> stringArrToIntList(String[] stringArr){
         List<Integer> integerList = new ArrayList();
