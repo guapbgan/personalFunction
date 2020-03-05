@@ -14,6 +14,7 @@
         }
     }
     public class UploadWarningException extends RuntimeException{
+        //version 20200212
         public String message;
         public UploadWarningException(String message){
             this.message = message;
@@ -22,6 +23,10 @@
         @Override
         public String getMessage(){
             return this.message;
+        }
+
+        public String getErrorType(){
+            return this.message.substring(0,originalFileName.lastIndexOf(":"));
         }
     }
     public class SqlDateTransformerException extends RuntimeException{
@@ -37,7 +42,7 @@
     }
     ////Other
     public class RequestHolder{
-        //  version 2020/01/22
+        //  version 2020/02/13
         //
         //  Transfer request to map according to type of request. 
         //  If request is multipart/form-data, the upload file would be assign to fileItem(if existed).
@@ -99,11 +104,11 @@
             //  sizeLimit: unit of sizeLimit is byte
             //  availableFileType: avaliable file type. ex. new String[]{"jpg", "gif", "jpeg", "png"}
             if(essential && this.fileItem == null){
-                throw new UploadWarningException("No file");
+                throw new UploadWarningException("NoFileError: No file");
             }else if(this.fileItem != null){
                 //check file size
                 if(this.fileItem.getSize() > sizeLimit){
-                    throw new UploadWarningException("File size can not be large than " + sizeLimit + " bytes");
+                    throw new UploadWarningException("SizeError: File size can not be large than " + (sizeLimit / 1048576) + " megabytes");
                 }                       
 
                 String mainFileName, fileType;
@@ -113,7 +118,7 @@
                 if(originalFileName.contains(".")){
                     fileType = originalFileName.substring(originalFileName.lastIndexOf(".")+1).toLowerCase();
                 }else{
-                    throw new UploadWarningException("There is no filename extension");
+                    throw new UploadWarningException("NoExtensionError: There is no filename extension");
                 }
                                 
                 if(fileName.equals("")){
@@ -128,7 +133,7 @@
                     availableMap.put(type,type);
                 }
                 if(availableMap.get(fileType) == null && availableMap.size() != 0){
-                    throw new UploadWarningException(fileType + " is not available");
+                    throw new UploadWarningException("IncorrectFileTypeError: File type is not available");
                 }
 
                 //start upload
@@ -156,6 +161,52 @@
             }
         }
     }
+    public class OptionBuilder{
+        //version 2020/02/13
+        private StringBuilder stringBuilder;
+        public OptionBuilder(){
+            this.stringBuilder = new StringBuilder();
+        }
+        public void put(String textAndValue){
+            put(textAndValue, textAndValue, "");
+        }
+        public void put(String textAndValue, String selectValue){
+            put(textAndValue, textAndValue, selectValue);
+        }
+        public void put(String text, String value, String selectValue){
+            selectValue = selectValue == null? "": selectValue;
+            if(text == null || value == null){
+                throw new NullPointerException("OptionBuilder: text or value is null");
+            }
+            if(value.equals(selectValue) && !selectValue.equals("")){
+                this.stringBuilder.append("<option value='").append(value).append("' selected>").append(text).append("</option>");
+            }else{
+                this.stringBuilder.append("<option value='").append(value).append("'>").append(text).append("</option>");
+            }         
+        }
+        public String build(){
+            return this.stringBuilder.toString();
+        }
+    }
+    public class I18nGetter{
+        //version 2020/02/13
+        private MessageSource messageSource;
+        private Locale locale;
+        public I18nGetter(MessageSource messageSource, Locale locale){
+            this.messageSource = messageSource;
+            this.locale = locale;
+        }
+
+        public String get(String code, String text){
+            return this.get(code, null, text);
+        }
+
+        //args would fill in {} of code in order, ex "{0} test {1}" => get "a test b" if args = new Object[]{"a", "b"}
+        //if messageSource gets no message by code, it would return defaultMessage
+        public String get(String code, Object[] args, String defaultMessage){
+            return this.messageSource.getMessage(code, args, defaultMessage, this.locale);
+        }
+    }    
 %>
 <%!
     //function
@@ -205,6 +256,14 @@
         }
         return stringBuilder.toString();
     }
+    public Map<String, String> getStringMap(String[] stringArray){
+        //version 20200217
+        Map<String, String> map = new HashMap<>();
+        for(String string: stringArray){
+            map.put(string, string);
+        }
+        return map;
+    }      
     ////html
     public String buildHtmlTablePart(String partElement, String[] stringArr){
         //  2019/11/26 version
@@ -290,36 +349,110 @@
         return content;
     }
     public List<Map<String, String>> replaceNullWithEmptyString(List queryResult){
+        // 2020/02/05 update
+        return replaceNullWithEmptyString(queryResult, true);
+    }
+    public List<Map<String, String>> replaceNullWithEmptyString(List queryResult, Boolean trim){
+        // 2020/02/05 update
         List content = new ArrayList();
         if(queryResult.size() != 0){
             Iterator iterator = queryResult.iterator();
             while(iterator.hasNext()){
                 Map<String, String> map = (Map)iterator.next();
-                map = replaceNullWithEmptyString(map);
+                map = replaceNullWithEmptyString(map, trim);
                 content.add(map);
             }
         }
         return content;
-    }    
+    }
     public Map<String, String> replaceNullWithEmptyString(Map oldMap){
-        // 2020/01/03 update
+        // 2020/02/05 update
+        return replaceNullWithEmptyString(oldMap, true);
+    }
+    public Map<String, String> replaceNullWithEmptyString(Map oldMap, Boolean trim){
+        // 2020/02/05 update
         Map<String, String> newMap = new HashMap();
         for(Object object: oldMap.entrySet()){
             Map.Entry<String, String> entry = (Map.Entry)object;
             if(entry.getValue() == null){
                 newMap.put(entry.getKey(), "");
             }else{
-                newMap.put(entry.getKey(), ((Object)entry.getValue()).toString().trim());
+                if(trim){
+                    newMap.put(entry.getKey(), ((Object)entry.getValue()).toString().trim());
+                }else{
+                    newMap.put(entry.getKey(), ((Object)entry.getValue()).toString());
+                }
             }
         }
         return newMap;
-    }
+    }    
     public String[] getAllColumnNamesOfTable(JdbcTemplate jt, String tableName){
         //2020/01/22 create
         SqlRowSet resultSet = jt.queryForRowSet("select * from " + tableName);
         SqlRowSetMetaData sqlRowSetMetaData = resultSet.getMetaData();
         return sqlRowSetMetaData.getColumnNames();
     }
+    public String buildSqlUpdate(Map<String, Object> dataMap, String tableName, String whereCondition){
+        //version 20200219
+        //set needed variables
+        Pattern toDatePattern = Pattern.compile("^to_date(.*)", Pattern.CASE_INSENSITIVE);
+        Pattern sysdatePattern = Pattern.compile("^sysdate$", Pattern.CASE_INSENSITIVE);
+
+        StringBuilder sqlmsBuilder = new StringBuilder("update " + tableName + " set ");
+        int totalDataNum = dataMap.size(), countNum = 0;        
+        for(Map.Entry<String, Object> entry: dataMap.entrySet()){
+            countNum ++;
+            if(entry.getValue() instanceof Number){
+                sqlmsBuilder.append(entry.getKey() + "=" + entry.getValue());
+            }else{
+                if(toDatePattern.matcher(entry.getValue().toString()).find() || sysdatePattern.matcher(entry.getValue().toString()).find()){
+                    sqlmsBuilder.append(entry.getKey() + "=" + entry.getValue() + "' ");
+                }else{
+                    sqlmsBuilder.append(entry.getKey() + "='" + entry.getValue() + "' ");
+                }
+            }
+    
+            if(countNum != totalDataNum){
+                sqlmsBuilder.append(",");
+            }
+        }
+        //set condition
+        sqlmsBuilder.append(whereCondition);
+        return sqlmsBuilder.toString();
+    }
+    public String buildSqlInsert(Map<String, Object> dataMap, String tableName){
+        //version 20200219
+        //set needed variables
+        Pattern toDatePattern = Pattern.compile("^to_date(.*)", Pattern.CASE_INSENSITIVE);
+        Pattern sysdatePattern = Pattern.compile("^sysdate$", Pattern.CASE_INSENSITIVE);
+
+        StringBuilder columnBuilder = new StringBuilder("insert into " + tableName + " (");
+        StringBuilder valueBuilder = new StringBuilder("values (");
+        int totalDataNum = dataMap.size(), countNum = 0;
+        for(Map.Entry<String, Object> entry: dataMap.entrySet()){
+            countNum ++;
+            columnBuilder.append(entry.getKey());
+
+            if(entry.getValue() instanceof Number){
+                valueBuilder.append(entry.getValue());
+            }else{
+                if(toDatePattern.matcher(entry.getValue().toString()).find() || sysdatePattern.matcher(entry.getValue().toString()).find()){
+                        valueBuilder.append(entry.getValue());
+                }else{
+                        valueBuilder.append("'" + entry.getValue() + "'");
+                }
+            }
+    
+            if(countNum != totalDataNum){
+                columnBuilder.append(",");
+                valueBuilder.append(",");
+            }else{
+                columnBuilder.append(") ");
+                valueBuilder.append(") ");
+            }   
+        }
+        return columnBuilder.toString() + valueBuilder.toString();
+    }    
     //other    
     public List<Integer> stringArrToIntList(String[] stringArr){
         List<Integer> integerList = new ArrayList();
@@ -328,14 +461,23 @@
         }
         return integerList;
     }
-    public Map<String, String> trimAndTransToUsefulMap(Map requestMap){
+    public Map<String, String> transToUsefulMap(Map requestMap){
+        //version 2020/02/05
+        return transToUsefulMap(requestMap, true);
+    }    
+    public Map<String, String> transToUsefulMap(Map requestMap, Boolean trim){
+        //version 2020/02/05
         Map<String, String> newDataMap = new HashMap();
         for(Object o: requestMap.entrySet()){
             Map.Entry<String, String[]> entry = (Map.Entry) o;
-            newDataMap.put(entry.getKey(), entry.getValue()[0].trim());
+            if(trim){
+                newDataMap.put(entry.getKey(), entry.getValue()[0].trim());
+            }else{
+                newDataMap.put(entry.getKey(), entry.getValue()[0]);
+            }
         }
         return newDataMap;
-    }    
+    }   
 
 %>
 <%!
@@ -349,6 +491,44 @@
         }
     }    
 %>
+<SCRIPT>
+class FakeForm{
+// version 2020/02/04
+    constructor(formAction = ""){
+        this.fakeForm = $("<form>", {
+                        'action': formAction,
+                        'method': 'post'
+                    });
+    }
+    submit(){
+        this.fakeForm.appendTo("body").submit();
+    }
+    put(inputValue){
+        for(var key in inputValue){
+            this.fakeForm.append($("<input>", {
+                'type': 'hidden',
+                'name': key,
+                'value': inputValue[key]
+            }));       
+        } 
+    }
+}
+
+$("input.toUpperCase[type='text']").on("input", function(){
+    //version 2020/03/02
+    var point = this.selectionStart; 
+    this.value = this.value.toUpperCase();
+    this.setSelectionRange(point, point);
+});
+
+$(".requiredStar").each(function(){
+    //version 2020/03/02
+    var targetElement = $(this);
+    targetElement.html(targetElement.html() + "<span style='color=red;'>*<span>");
+});
+
+</SCRIPT>
+
 <%@page import="java.util.*"%>
 <%@page import="java.lang.RuntimeException"%>
 <%@page import="java.text.SimpleDateFormat"%>
@@ -370,3 +550,6 @@
 <%@ page import="org.apache.commons.fileupload.disk.DiskFileItemFactory"%>
 <%@ page import="org.apache.commons.fileupload.servlet.ServletFileUpload"%>
 <%@ page import="java.io.File"%>
+<%@page import="org.springframework.context.MessageSource"%>
+<%@page import="java.util.Locale"%>
+<%@page import="org.springframework.context.NoSuchMessageException"%>
